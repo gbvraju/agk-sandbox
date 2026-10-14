@@ -130,3 +130,5 @@ ok reviewers (.github/CODEOWNERS matches)
 into a throwaway virtualenv outside the repository and run as `make test PY=<venv>/bin/python`.
 
 `ruff check .`: `All checks passed!`
+
+pytest installed in a throwaway venv because the session lacked it; CI installs its own.
