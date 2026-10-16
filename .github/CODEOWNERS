@@ -5,16 +5,12 @@
 /.claude/ @gbvraju
 /.github/ @gbvraju
 /Makefile @gbvraju
-/Makefile @gbvraju
 /CLAUDE.md @gbvraju
 /README.md @gbvraju
 /constitution/ @gbvraju
 /pyproject.toml @gbvraju
-/pyproject.toml @gbvraju
 /docs/adr/ @gbvraju
 /tests/kit/ @gbvraju
-/tests/kit/ @gbvraju
 /docs/specs/ @gbvraju
-/scripts/agk/ @gbvraju
 /scripts/agk/ @gbvraju
 /docs/requirements.md @gbvraju
