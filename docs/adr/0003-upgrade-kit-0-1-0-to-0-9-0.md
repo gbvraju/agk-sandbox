@@ -1,6 +1,6 @@
 # ADR-0003: upgrade the kit from 0.1.0 to 0.9.0
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-16
 - Deciders: maintainers
 - Related: ADR-0001
@@ -30,4 +30,7 @@ Upgrade the kit from 0.1.0 to 0.9.0.
 
 ## Residual
 
-- 2026-10-16: `pyproject.toml` still carries the obsolete `[tool.agk]` table (remove it in a separate change).
+- 2026-10-16: `pyproject.toml` still carries the obsolete `[tool.agk]` table (remove it in a separate change)
+  (due 2026-10-31).
+- 2026-10-16: `config/protected-paths.txt` lacks `agk.mk` and `agk.toml` (printed by the upgrade); until added, changes
+  to them need no ADR (due 2026-10-23).
