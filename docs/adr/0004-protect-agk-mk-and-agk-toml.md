@@ -1,6 +1,6 @@
 # ADR-0004: protect agk.mk and agk.toml; remove the obsolete [tool.agk] table
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-16
 - Deciders: maintainers
 - Related: ADR-0003
