@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stop hook: run `make governance` and block stopping while it is red.
+"""Stop hook: run `make -f agk.mk agk-governance` and block stopping while it is red.
 
 Contract (verify): the hook receives JSON on stdin (including `stop_hook_active` and `cwd`);
 printing {"decision": "block", "reason": ...} with exit code 0 keeps the session going.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 - fixed argument lists only, no shell
 import sys
 
 TAIL_LINES = 30
@@ -34,19 +34,21 @@ def main() -> int:
         return 0
     root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()
     try:
-        proc = subprocess.run(
-            ["make", "governance"],
+        proc = subprocess.run(  # nosec B603 B607 - fixed argument list, no shell
+            ["make", "-f", "agk.mk", "agk-governance"],
             cwd=root,
             capture_output=True,
             text=True,
             timeout=TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return block("`make governance` could not run to completion; fix the environment first.")
+        return block(
+            "`make -f agk.mk agk-governance` could not run to completion; fix the environment."
+        )
     if proc.returncode == 0:
         return 0
     tail = "\n".join((proc.stdout + proc.stderr).splitlines()[-TAIL_LINES:])
-    return block(f"`make governance` is red. Fix it before stopping.\n{tail}")
+    return block(f"`make -f agk.mk agk-governance` is red. Fix it before stopping.\n{tail}")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 - fixed argument lists only, no shell
 import sys
 import tomllib
 from collections.abc import Callable, Sequence
@@ -21,21 +21,21 @@ class CheckError(Exception):
 
 
 def git(root: Path, *args: str, check: bool = True) -> str:
-    proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+    proc = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)  # nosec B603 B607 - fixed argument list, no shell
     if check and proc.returncode != 0:
         raise CheckError(f"git {args[0]} failed")
     return proc.stdout
 
 
 def repo_root() -> Path:
-    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)  # nosec B603 B607 - fixed argument list, no shell
     if proc.returncode != 0:
         raise CheckError("not inside a git repository")
     return Path(proc.stdout.strip())
 
 
 def _verify(root: Path, ref: str) -> str | None:
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 B607 - fixed argument list, no shell
         ["git", "rev-parse", "--verify", "-q", f"{ref}^{{commit}}"],
         cwd=root,
         capture_output=True,
@@ -45,7 +45,7 @@ def _verify(root: Path, ref: str) -> str | None:
 
 
 def resolve_base(root: Path, cli_base: str | None = None) -> str | None:
-    """Base commit: --base, AGK_BASE, GITHUB_BASE_REF, then origin/main or main.
+    """Base commit: --base, AGK_BASE, GITHUB_BASE_REF, then the default branch (agk.toml or main).
 
     Returns None only outside CI when nothing resolves (the check is then skipped).
     """
@@ -62,7 +62,8 @@ def resolve_base(root: Path, cli_base: str | None = None) -> str | None:
             if sha:
                 return sha
         raise CheckError("GITHUB_BASE_REF does not resolve")
-    for candidate in ("origin/main", "main"):
+    branch = load_config(root)["default_branch"]
+    for candidate in (f"origin/{branch}", branch):
         sha = _verify(root, candidate)
         if sha:
             return sha
@@ -106,7 +107,7 @@ def changed_lines(root: Path, mb: str, path: str) -> list[str]:
 
 
 def show(root: Path, rev: str, path: str) -> str | None:
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 B607 - fixed argument list, no shell
         ["git", "show", f"{rev}:{path}"], cwd=root, capture_output=True, text=True
     )
     return proc.stdout if proc.returncode == 0 else None
@@ -136,35 +137,101 @@ def parse_requirements(text: str) -> list[dict]:
     return reqs
 
 
+DEFAULT_CONFIG = {
+    "default_branch": "main",
+    "test_dirs": ["tests"],
+    "lint_paths": ["scripts/agk", "tests/kit", ".claude/hooks"],
+    "project_tests": "",
+    "test_patterns": ["test_*.py"],
+    "mode": "",
+}
+
+
+def load_config(root: Path) -> dict:
+    """agk.toml first, then [tool.agk] in pyproject.toml (earlier installs); defaults fill gaps."""
+    cfg = {k: list(v) if isinstance(v, list) else v for k, v in DEFAULT_CONFIG.items()}
+    source: dict = {}
+    agk_toml = root / "agk.toml"
+    pyproject = root / "pyproject.toml"
+    if agk_toml.is_file():
+        source = tomllib.loads(agk_toml.read_text(encoding="utf-8"))
+    elif pyproject.is_file():
+        source = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("tool", {}).get("agk", {})
+    for key in DEFAULT_CONFIG:
+        if key in source:
+            cfg[key] = source[key]
+    return cfg
+
+
+def detect_default_branch(target: Path) -> str | None:
+    """Default branch from .git files, without calling git; None when it cannot be told."""
+    git = target / ".git"
+    if not git.is_dir():
+        return None
+    head = git / "refs" / "remotes" / "origin" / "HEAD"
+    prefix = "ref: refs/remotes/origin/"
+    if head.is_file():
+        line = head.read_text(encoding="utf-8").strip()
+        return line[len(prefix) :] if line.startswith(prefix) and line[len(prefix) :] else None
+    config = git / "config"
+    has_origin = (git / "refs" / "remotes" / "origin").exists() or (
+        config.is_file() and '[remote "origin"]' in config.read_text(encoding="utf-8")
+    )
+    if has_origin:
+        return None
+    line = (git / "HEAD").read_text(encoding="utf-8").strip() if (git / "HEAD").is_file() else ""
+    prefix = "ref: refs/heads/"
+    return line[len(prefix) :] if line.startswith(prefix) and line[len(prefix) :] else None
+
+
 def test_dirs(root: Path, cli_dirs: Sequence[str] | None = None) -> list[str]:
     if cli_dirs:
         return list(cli_dirs)
-    pyproject = root / "pyproject.toml"
-    if pyproject.is_file():
-        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        dirs = data.get("tool", {}).get("agk", {}).get("test_dirs")
-        if dirs:
-            return list(dirs)
-    return ["tests"]
+    return list(load_config(root)["test_dirs"])
 
 
-def find_markers(root: Path, dirs: Sequence[str]) -> dict[str, list[str]]:
-    """REQ id -> sorted files (relative) named test_*.py under dirs that contain the marker."""
+def find_markers(
+    root: Path,
+    dirs: Sequence[str],
+    patterns: Sequence[str] = ("test_*.py",),
+    exclude: Sequence[str] = (),
+) -> dict[str, list[str]]:
+    """REQ id -> sorted files (relative) matching patterns under dirs that contain the marker.
+
+    Files under an excluded directory are skipped unless a listed dir is inside that directory.
+    """
     found: dict[str, set[str]] = {}
+    skip = tuple(
+        e.strip("/") + "/"
+        for e in exclude
+        if not any(d.strip("/").startswith(e.strip("/")) for d in dirs)
+    )
     for d in dirs:
         base = root / d
         if not base.is_dir():
             continue
-        for path in sorted(base.rglob("test_*.py")):
-            if not path.is_file() or "__pycache__" in path.parts:
+        paths = {p for pattern in patterns for p in base.rglob(pattern)}
+        for path in sorted(paths):
+            rel = path.relative_to(root).as_posix()
+            if not path.is_file() or "__pycache__" in path.parts or rel.startswith(skip):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
             for req in set(REQ_ID.findall(text)):
-                found.setdefault(req, set()).add(path.relative_to(root).as_posix())
+                found.setdefault(req, set()).add(rel)
     return {k: sorted(v) for k, v in found.items()}
+
+
+def markers_for(root: Path, cli_dirs: Sequence[str] | None = None) -> dict[str, list[str]]:
+    """Markers from the configured directories and patterns (agk.toml).
+
+    In adopt mode tests/kit is left out of the search unless a listed directory is inside it.
+    """
+    cfg = load_config(root)
+    exclude = ["tests/kit"] if cfg["mode"] == "adopt" else []
+    return find_markers(root, test_dirs(root, cli_dirs), cfg["test_patterns"], exclude)
 
 
 def run(name: str, fn: Callable[[], int]) -> int:

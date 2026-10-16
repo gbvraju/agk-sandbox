@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import subprocess  # nosec B404 - fixed argument lists only, no shell
 import sys
 from pathlib import Path
 
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts" / "agk"
+sys.path.insert(0, str(SCRIPTS))
+
+# Kit tests are collected only when run through agk.mk (agk-test sets AGK_KIT_TESTS=1), so a
+# project's own `pytest .` never collects them.
+if os.environ.get("AGK_KIT_TESTS") != "1":
+    collect_ignore_glob = ["*"]
+
 
 PROTECTED = "constitution/\nconfig/\n.claude/\n.github/\ndocs/requirements.md\n"
 
@@ -19,7 +26,7 @@ class Repo:
         self.root = root
 
     def git(self, *args: str) -> str:
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 B607 - fixed argument list, no shell
             ["git", *args], cwd=self.root, capture_output=True, text=True, check=True
         )
         return proc.stdout
@@ -46,7 +53,7 @@ class Repo:
             k: v for k, v in os.environ.items() if k not in ("GITHUB_BASE_REF", "AGK_BASE", "CI")
         }
         full_env.update(env)
-        return subprocess.run(
+        return subprocess.run(  # nosec B603 - fixed argument list, no shell
             [sys.executable, str(SCRIPTS / script), *args],
             cwd=self.root,
             input=stdin,
